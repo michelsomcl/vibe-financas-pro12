@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useFinance } from "@/contexts/FinanceContext";
 import { Account } from "@/types";
 import { Plus, Edit, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Accounts() {
   const { accounts, setAccounts } = useFinance();
@@ -30,7 +31,7 @@ export default function Accounts() {
     setEditingAccount(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.type) {
@@ -42,38 +43,76 @@ export default function Accounts() {
       return;
     }
 
-    if (editingAccount) {
-      // Editar conta existente
-      setAccounts(prev => prev.map(account => 
-        account.id === editingAccount.id 
-          ? {
-              ...account,
-              name: formData.name,
-              type: formData.type,
-              initialBalance: formData.initialBalance,
-              currentBalance: formData.initialBalance,
-            }
-          : account
-      ));
-      toast({
-        title: "Sucesso",
-        description: "Conta atualizada com sucesso!"
-      });
-    } else {
-      // Criar nova conta
-      const newAccount: Account = {
-        id: Date.now().toString(),
-        name: formData.name,
-        type: formData.type,
-        initialBalance: formData.initialBalance,
-        currentBalance: formData.initialBalance,
-        createdAt: new Date(),
-      };
+    try {
+      if (editingAccount) {
+        // Editar conta existente no Supabase
+        const { error } = await supabase
+          .from('accounts')
+          .update({
+            name: formData.name,
+            type: formData.type,
+            initial_balance: formData.initialBalance,
+            current_balance: formData.initialBalance,
+          })
+          .eq('id', editingAccount.id);
 
-      setAccounts(prev => [...prev, newAccount]);
+        if (error) throw error;
+
+        // Atualizar estado local
+        setAccounts(prev => prev.map(account => 
+          account.id === editingAccount.id 
+            ? {
+                ...account,
+                name: formData.name,
+                type: formData.type,
+                initialBalance: formData.initialBalance,
+                currentBalance: formData.initialBalance,
+              }
+            : account
+        ));
+        
+        toast({
+          title: "Sucesso",
+          description: "Conta atualizada com sucesso!"
+        });
+      } else {
+        // Criar nova conta no Supabase
+        const { data, error } = await supabase
+          .from('accounts')
+          .insert({
+            name: formData.name,
+            type: formData.type,
+            initial_balance: formData.initialBalance,
+            current_balance: formData.initialBalance,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Adicionar ao estado local
+        const newAccount: Account = {
+          id: data.id,
+          name: data.name,
+          type: data.type as 'banco' | 'dinheiro' | 'caixa' | 'cartao',
+          initialBalance: Number(data.initial_balance),
+          currentBalance: Number(data.current_balance),
+          createdAt: new Date(data.created_at)
+        };
+
+        setAccounts(prev => [...prev, newAccount]);
+        
+        toast({
+          title: "Sucesso",
+          description: "Conta criada com sucesso!"
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao salvar conta:", error);
       toast({
-        title: "Sucesso",
-        description: "Conta criada com sucesso!"
+        title: "Erro",
+        description: "Não foi possível salvar a conta",
+        variant: "destructive"
       });
     }
 
@@ -91,13 +130,32 @@ export default function Accounts() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta conta?')) {
-      setAccounts(prev => prev.filter(account => account.id !== id));
-      toast({
-        title: "Sucesso",
-        description: "Conta excluída com sucesso!"
-      });
+      try {
+        // Excluir do Supabase
+        const { error } = await supabase
+          .from('accounts')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Atualizar estado local
+        setAccounts(prev => prev.filter(account => account.id !== id));
+        
+        toast({
+          title: "Sucesso",
+          description: "Conta excluída com sucesso!"
+        });
+      } catch (error) {
+        console.error("Erro ao excluir conta:", error);
+        toast({
+          title: "Erro",
+          description: "Não foi possível excluir a conta",
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -140,6 +198,9 @@ export default function Accounts() {
               <DialogTitle>
                 {editingAccount ? 'Editar Conta' : 'Nova Conta'}
               </DialogTitle>
+              <DialogDescription>
+                {editingAccount ? 'Modifique os dados da conta' : 'Preencha os dados para criar uma nova conta'}
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>

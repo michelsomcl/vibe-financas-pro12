@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useFinance } from "@/contexts/FinanceContext";
 import { Category } from "@/types";
 import { Plus, Edit, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Categories() {
   const { categories, setCategories } = useFinance();
@@ -29,7 +30,7 @@ export default function Categories() {
     setEditingCategory(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.type) {
@@ -41,32 +42,68 @@ export default function Categories() {
       return;
     }
 
-    if (editingCategory) {
-      setCategories(prev => prev.map(category => 
-        category.id === editingCategory.id 
-          ? {
-              ...category,
-              name: formData.name,
-              type: formData.type,
-            }
-          : category
-      ));
-      toast({
-        title: "Sucesso",
-        description: "Categoria atualizada com sucesso!"
-      });
-    } else {
-      const newCategory: Category = {
-        id: Date.now().toString(),
-        name: formData.name,
-        type: formData.type,
-        createdAt: new Date(),
-      };
+    try {
+      if (editingCategory) {
+        // Editar categoria existente no Supabase
+        const { error } = await supabase
+          .from('categories')
+          .update({
+            name: formData.name,
+            type: formData.type,
+          })
+          .eq('id', editingCategory.id);
 
-      setCategories(prev => [...prev, newCategory]);
+        if (error) throw error;
+
+        // Atualizar estado local
+        setCategories(prev => prev.map(category => 
+          category.id === editingCategory.id 
+            ? {
+                ...category,
+                name: formData.name,
+                type: formData.type,
+              }
+            : category
+        ));
+        
+        toast({
+          title: "Sucesso",
+          description: "Categoria atualizada com sucesso!"
+        });
+      } else {
+        // Criar nova categoria no Supabase
+        const { data, error } = await supabase
+          .from('categories')
+          .insert({
+            name: formData.name,
+            type: formData.type,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Adicionar ao estado local
+        const newCategory: Category = {
+          id: data.id,
+          name: data.name,
+          type: data.type as 'receita' | 'despesa',
+          createdAt: new Date(data.created_at)
+        };
+
+        setCategories(prev => [...prev, newCategory]);
+        
+        toast({
+          title: "Sucesso",
+          description: "Categoria criada com sucesso!"
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao salvar categoria:", error);
       toast({
-        title: "Sucesso",
-        description: "Categoria criada com sucesso!"
+        title: "Erro",
+        description: "Não foi possível salvar a categoria",
+        variant: "destructive"
       });
     }
 
@@ -83,13 +120,32 @@ export default function Categories() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta categoria?')) {
-      setCategories(prev => prev.filter(category => category.id !== id));
-      toast({
-        title: "Sucesso",
-        description: "Categoria excluída com sucesso!"
-      });
+      try {
+        // Excluir do Supabase
+        const { error } = await supabase
+          .from('categories')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Atualizar estado local
+        setCategories(prev => prev.filter(category => category.id !== id));
+        
+        toast({
+          title: "Sucesso",
+          description: "Categoria excluída com sucesso!"
+        });
+      } catch (error) {
+        console.error("Erro ao excluir categoria:", error);
+        toast({
+          title: "Erro",
+          description: "Não foi possível excluir a categoria",
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -118,6 +174,9 @@ export default function Categories() {
               <DialogTitle>
                 {editingCategory ? 'Editar Categoria' : 'Nova Categoria'}
               </DialogTitle>
+              <DialogDescription>
+                {editingCategory ? 'Modifique os dados da categoria' : 'Preencha os dados para criar uma nova categoria'}
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
