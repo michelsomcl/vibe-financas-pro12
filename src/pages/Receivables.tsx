@@ -17,6 +17,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import ReceivableForm from "@/components/receivables/ReceivableForm";
 import { ReceivableAccount } from "@/types";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Receivables() {
   const { 
@@ -33,6 +34,7 @@ export default function Receivables() {
   
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingReceivable, setEditingReceivable] = useState<ReceivableAccount | null>(null);
+  const { toast } = useToast();
 
   const clients = clientsSuppliers.filter(cs => cs.type === 'cliente');
   const revenueCategories = categories.filter(cat => cat.type === 'receita');
@@ -50,29 +52,47 @@ export default function Receivables() {
 
   const handleMarkAsReceived = async (receivable: ReceivableAccount) => {
     try {
-      // Atualiza a conta para recebida
-      const receivedDate = new Date();
-      await updateReceivableAccount(receivable.id, {
-        isReceived: true,
-        receivedDate
-      });
+      // First check if a transaction for this receivable already exists
+      const existingTransaction = transactions.find(
+        t => t.sourceType === 'receivable' && t.sourceId === receivable.id
+      );
       
-      // Cria um lançamento correspondente a este recebimento
-      await addTransaction({
-        type: 'receita',
-        clientSupplierId: receivable.clientId,
-        categoryId: receivable.categoryId,
-        value: receivable.value,
-        paymentDate: receivedDate,
-        observations: receivable.observations,
-        sourceType: 'receivable',
-        sourceId: receivable.id
-      });
-      
-      toast({
-        title: "Recebimento registrado",
-        description: "O recebimento foi registrado e adicionado aos lançamentos."
-      });
+      if (existingTransaction) {
+        // If a transaction already exists, just update the receivable status
+        await updateReceivableAccount(receivable.id, {
+          isReceived: true,
+          receivedDate: new Date()
+        });
+        
+        toast({
+          title: "Status atualizado",
+          description: "A conta foi marcada como recebida."
+        });
+      } else {
+        // Atualiza a conta para recebida
+        const receivedDate = new Date();
+        await updateReceivableAccount(receivable.id, {
+          isReceived: true,
+          receivedDate
+        });
+        
+        // Cria um lançamento correspondente a este recebimento
+        await addTransaction({
+          type: 'receita',
+          clientSupplierId: receivable.clientId,
+          categoryId: receivable.categoryId,
+          value: receivable.value,
+          paymentDate: receivedDate,
+          observations: receivable.observations,
+          sourceType: 'receivable',
+          sourceId: receivable.id
+        });
+        
+        toast({
+          title: "Recebimento registrado",
+          description: "O recebimento foi registrado e adicionado aos lançamentos."
+        });
+      }
     } catch (error) {
       console.error('Erro ao registrar recebimento:', error);
       toast({
