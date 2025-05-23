@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,9 @@ export default function Payables() {
     loading, 
     updatePayableAccount, 
     deletePayableAccount,
-    addTransaction
+    addTransaction,
+    deleteTransaction,
+    transactions
   } = useFinance();
   
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -90,21 +93,23 @@ export default function Payables() {
         paidDate: undefined
       });
       
-      // 2. Remove o lançamento correspondente se existir
-      const { data, error } = await supabase
-        .from('transactions')
-        .delete()
-        .match({
-          source_type: 'payable',
-          source_id: payable.id
+      // 2. Encontra e remove o lançamento correspondente
+      const relatedTransaction = transactions.find(
+        t => t.sourceType === 'payable' && t.sourceId === payable.id
+      );
+      
+      if (relatedTransaction) {
+        await deleteTransaction(relatedTransaction.id);
+        toast({
+          title: "Status atualizado",
+          description: "A conta foi marcada como não paga e o lançamento foi removido."
         });
-      
-      if (error) throw error;
-      
-      toast({
-        title: "Status atualizado",
-        description: "A conta foi marcada como não paga e o lançamento foi removido."
-      });
+      } else {
+        toast({
+          title: "Status atualizado",
+          description: "A conta foi marcada como não paga."
+        });
+      }
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
       toast({
