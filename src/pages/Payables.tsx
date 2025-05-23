@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +16,8 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import PayableForm from "@/components/payables/PayableForm";
 import { PayableAccount } from "@/types";
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Payables() {
   const { 
@@ -25,7 +26,8 @@ export default function Payables() {
     clientsSuppliers, 
     loading, 
     updatePayableAccount, 
-    deletePayableAccount 
+    deletePayableAccount,
+    addTransaction
   } = useFinance();
   
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -46,17 +48,71 @@ export default function Payables() {
   };
 
   const handleMarkAsPaid = async (payable: PayableAccount) => {
-    await updatePayableAccount(payable.id, {
-      isPaid: true,
-      paidDate: new Date()
-    });
+    try {
+      // 1. Atualiza a conta para paga
+      const paidDate = new Date();
+      await updatePayableAccount(payable.id, {
+        isPaid: true,
+        paidDate
+      });
+      
+      // 2. Cria um lançamento correspondente a este pagamento
+      await addTransaction({
+        type: 'despesa',
+        clientSupplierId: payable.supplierId,
+        categoryId: payable.categoryId,
+        value: payable.value,
+        paymentDate: paidDate,
+        observations: payable.observations,
+        sourceType: 'payable',
+        sourceId: payable.id
+      });
+      
+      toast({
+        title: "Pagamento registrado",
+        description: "O pagamento foi registrado e adicionado aos lançamentos."
+      });
+    } catch (error) {
+      console.error('Erro ao registrar pagamento:', error);
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao registrar o pagamento.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleMarkAsUnpaid = async (payable: PayableAccount) => {
-    await updatePayableAccount(payable.id, {
-      isPaid: false,
-      paidDate: undefined
-    });
+    try {
+      // 1. Marca a conta como não paga
+      await updatePayableAccount(payable.id, {
+        isPaid: false,
+        paidDate: undefined
+      });
+      
+      // 2. Remove o lançamento correspondente se existir
+      const { data, error } = await supabase
+        .from('transactions')
+        .delete()
+        .match({
+          source_type: 'payable',
+          source_id: payable.id
+        });
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Status atualizado",
+        description: "A conta foi marcada como não paga e o lançamento foi removido."
+      });
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao atualizar o status do pagamento.",
+        variant: "destructive"
+      });
+    }
   };
 
   const getSupplierName = (supplierId: string) => {
